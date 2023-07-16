@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Union
 
 from ultralytics import yolo  # noqa
-from ultralytics.nn.tasks import (ClassificationModel, DetectionModel, PoseModel, SegmentationModel,
+from ultralytics.nn.tasks import (ClassificationModel, DetectionModel, PoseModel, SegmentationModel, DecloudModel,
                                   attempt_load_one_weight, guess_model_task, nn, yaml_model_load)
 from ultralytics.yolo.cfg import get_cfg
 from ultralytics.yolo.engine.exporter import Exporter
@@ -26,7 +26,10 @@ TASK_MAP = {
     'segment': [
         SegmentationModel, yolo.v8.segment.SegmentationTrainer, yolo.v8.segment.SegmentationValidator,
         yolo.v8.segment.SegmentationPredictor],
-    'pose': [PoseModel, yolo.v8.pose.PoseTrainer, yolo.v8.pose.PoseValidator, yolo.v8.pose.PosePredictor]}
+    'pose': [PoseModel, yolo.v8.pose.PoseTrainer, yolo.v8.pose.PoseValidator, yolo.v8.pose.PosePredictor],
+    'decloud': [
+        DecloudModel, yolo.v8.decloud.DecloudTrainer, yolo.v8.decloud.DecloudValidator,
+        yolo.v8.decloud.DecloudPredictor]}
 
 
 class YOLO:
@@ -141,7 +144,19 @@ class YOLO:
         # Below added to allow export from yamls
         args = {**DEFAULT_CFG_DICT, **self.overrides}  # combine model and default args, preferring model args
         self.model.args = {k: v for k, v in args.items() if k in DEFAULT_CFG_KEYS}  # attach args to model
-        self.model.task = self.task
+        self.model.task = self.task 
+
+        if self.task == 'decloud':
+            """ 添加代码bug """
+            import torch
+            from ultralytics.yolo.utils.torch_utils import intersect_dicts
+            ckpt = torch.load('yolov8n.pt')
+            csd = ckpt['model'].float().state_dict()
+            csd = intersect_dicts(csd,self.model.state_dict())
+            self.model.load_state_dict(csd,strict = False)
+            print(f'Transferred {len(csd)}/{len(self.model.state_dict())} items')
+            """ 添加代码bug """
+
 
     def _load(self, weights: str, task=None):
         """
@@ -366,10 +381,11 @@ class YOLO:
             overrides['resume'] = self.ckpt_path
         self.task = overrides.get('task') or self.task
         self.trainer = TASK_MAP[self.task][1](overrides=overrides, _callbacks=self.callbacks)
-        if not overrides.get('resume'):  # manually set model only if not resuming
-            self.trainer.model = self.trainer.get_model(weights=self.model if self.ckpt else None, cfg=self.model.yaml)
-            self.model = self.trainer.model
-        self.trainer.hub_session = self.session  # attach optional HUB session
+        if self.task != 'decloud':
+            if not overrides.get('resume'):  # manually set model only if not resuming
+                self.trainer.model = self.trainer.get_model(weights=self.model if self.ckpt else None, cfg=self.model.yaml)
+                self.model = self.trainer.model
+            self.trainer.hub_session = self.session  # attach optional HUB session
         self.trainer.train()
         # Update model and cfg after training
         if RANK in (-1, 0):
