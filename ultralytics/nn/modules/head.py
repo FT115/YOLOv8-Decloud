@@ -96,6 +96,15 @@ class Segment(Detect):
             return x, mc, p
         return (torch.cat([x, mc], 1), p) if self.export else (torch.cat([x[0], mc], 1), (x[1], mc, p))
 
+class Decloud(nn.Module):
+    
+    def __init__(self, c1, nc=3) -> None:
+        super().__init__()
+        self.nc = nc
+        self.conv = Conv(c1, nc, k=3, s=1)
+    
+    def forward(self, x):
+        return self.conv(x)
 
 class Pose(Detect):
     """YOLOv8 Pose head for keypoints models."""
