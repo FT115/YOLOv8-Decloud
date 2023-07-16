@@ -33,7 +33,7 @@ from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.files import increment_path
 from ultralytics.yolo.utils.ops import Profile
 from ultralytics.yolo.utils.torch_utils import de_parallel, select_device, smart_inference_mode
-
+from ultralytics.nn.tasks import DecloudModel
 
 class BaseValidator:
     """
@@ -137,7 +137,10 @@ class BaseValidator:
             self.dataloader = self.dataloader or self.get_dataloader(self.data.get(self.args.split), self.args.batch)
 
             model.eval()
-            model.warmup(imgsz=(1 if pt else self.args.batch, 3, imgsz, imgsz))  # warmup
+            try:
+                model.warmup(imgsz=(1 if pt else self.args.batch, 3, imgsz, imgsz))  # warmup
+            except:
+                model.warmup(imgsz=(1 if pt else self.args.batch, 5, imgsz, imgsz))  # warmup
 
         dt = Profile(), Profile(), Profile(), Profile()
         n_batches = len(self.dataloader)
@@ -157,7 +160,10 @@ class BaseValidator:
 
             # Inference
             with dt[1]:
-                preds = model(batch['img'], augment=self.args.augment)
+                try:
+                    preds = model(batch['img'], augment=self.args.augment)
+                except:
+                    preds = model(batch['source'], augment=self.args.augment)
 
             # Loss
             with dt[2]:
@@ -169,9 +175,12 @@ class BaseValidator:
                 preds = self.postprocess(preds)
 
             self.update_metrics(preds, batch)
-            if self.args.plots and batch_i < 3:
-                self.plot_val_samples(batch, batch_i)
-                self.plot_predictions(batch, preds, batch_i)
+            try:
+                if self.args.plots and batch_i < 3:
+                    self.plot_val_samples(batch, batch_i)
+                    self.plot_predictions(batch, preds, batch_i)
+            except:
+                None
 
             self.run_callbacks('on_val_batch_end')
         stats = self.get_stats()
