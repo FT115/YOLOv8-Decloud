@@ -10,10 +10,10 @@ import torch.nn as nn
 from ultralytics.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottleneck, BottleneckCSP, C2f, C3Ghost, C3x,
                                     Classify, Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
                                     Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, Pose, RepC3, RepConv,
-                                    RTDETRDecoder, Segment)
+                                    RTDETRDecoder, Segment, Decloud)
 from ultralytics.yolo.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.yolo.utils.checks import check_requirements, check_suffix, check_yaml
-from ultralytics.yolo.utils.loss import v8ClassificationLoss, v8DetectionLoss, v8PoseLoss, v8SegmentationLoss
+from ultralytics.yolo.utils.loss import v8ClassificationLoss, v8DetectionLoss, v8PoseLoss, v8SegmentationLoss, v8DecloudLoss
 from ultralytics.yolo.utils.plotting import feature_visualization
 from ultralytics.yolo.utils.torch_utils import (fuse_conv_and_bn, fuse_deconv_and_bn, initialize_weights,
                                                 intersect_dicts, make_divisible, model_info, scale_img, time_sync)
@@ -210,8 +210,10 @@ class BaseModel(nn.Module):
         """
         if not hasattr(self, 'criterion'):
             self.criterion = self.init_criterion()
-
-        preds = self.forward(batch['img']) if preds is None else preds
+        try:
+            preds = self.forward(batch['img']) if preds is None else preds
+        except:
+            preds = self.forward(batch['source']) if preds is None else preds
         return self.criterion(preds, batch)
 
     def init_criterion(self):
@@ -305,6 +307,20 @@ class SegmentationModel(DetectionModel):
 
     def _predict_augment(self, x):
         """Perform augmentations on input image x and return augmented inference."""
+        LOGGER.warning(
+            f'WARNING ⚠️ {self.__class__.__name__} has not supported augment inference yet! Now using single-scale inference instead.'
+        )
+        return self._predict_once(x)
+
+class DecloudModel(DetectionModel):
+
+    def __init__(self, cfg='yolov8-decloud.yaml', ch=5, nc=None, verbose=True):
+        super().__init__(cfg, ch, nc, verbose)
+
+    def init_criterion(self):
+        return v8DecloudLoss(self)
+    
+    def _predict_augment(self, x):
         LOGGER.warning(
             f'WARNING ⚠️ {self.__class__.__name__} has not supported augment inference yet! Now using single-scale inference instead.'
         )
@@ -632,12 +648,12 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                     args[j] = locals()[a] if a in locals() else ast.literal_eval(a)
 
         n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain
-        if m in (Classify, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
+        if m in (Classify, Decloud, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
                  BottleneckCSP, C1, C2, C2f, C3, C3TR, C3Ghost, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3):
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
-
+            c2 = c2 if m not in (Decloud,) else 3
             args = [c1, c2, *args[1:]]
             if m in (BottleneckCSP, C1, C2, C2f, C3, C3TR, C3Ghost, C3x, RepC3):
                 args.insert(2, n)  # number of repeats
@@ -737,6 +753,8 @@ def guess_model_task(model):
             return 'segment'
         if m == 'pose':
             return 'pose'
+        if m == 'decloud':
+            return 'decloud'
 
     # Guess from model cfg
     if isinstance(model, dict):
