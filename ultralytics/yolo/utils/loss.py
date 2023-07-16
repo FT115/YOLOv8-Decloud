@@ -293,6 +293,27 @@ class v8SegmentationLoss(v8DetectionLoss):
         loss = F.binary_cross_entropy_with_logits(pred_mask, gt_mask, reduction='none')
         return (crop_mask(loss, xyxy).mean(dim=(1, 2)) / area).mean()
 
+class v8DecloudLoss(v8DetectionLoss):
+
+    def __init__(self, model):
+        self.l1_weight = 1
+        self.ssim_weight = 4
+        self.device = next(model.parameters()).device 
+
+    def __call__(self, preds, batch):
+        batch_size, _, _, _ = preds.shape
+        loss = torch.zeros(2, device=self.device)
+        loss[0] = F.l1_loss(preds, batch["target"])
+        from ultralytics.yolo.utils import ssim
+        # ssim_loss_cal = ssim.SSIM(window_size=11)
+        # loss[1] = 1 - ssim_loss_cal(preds, batch["target"])
+        loss[1] = 0
+        loss[0] *= self.l1_weight
+        loss[1] *= self.ssim_weight
+        return loss.sum() * batch_size, loss.detach()
+
+    
+
 
 # Criterion class for computing training losses
 class v8PoseLoss(v8DetectionLoss):
