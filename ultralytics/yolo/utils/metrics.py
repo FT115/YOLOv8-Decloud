@@ -975,3 +975,53 @@ class ClassifyMetrics(SimpleClass):
     def keys(self):
         """Returns a list of keys for the results_dict property."""
         return ['metrics/accuracy_top1', 'metrics/accuracy_top5']
+
+
+class DecloudMetrics(SimpleClass):
+    """
+    Class for computing classification metrics including top-1 and top-5 accuracy.
+
+    Attributes:
+        top1 (float): The top-1 accuracy.
+        top5 (float): The top-5 accuracy.
+        speed (Dict[str, float]): A dictionary containing the time taken for each step in the pipeline.
+
+    Properties:
+        fitness (float): The fitness of the model, which is equal to top-5 accuracy.
+        results_dict (Dict[str, Union[float, str]]): A dictionary containing the classification metrics and fitness.
+        keys (List[str]): A list of keys for the results_dict.
+
+    Methods:
+        process(targets, pred): Processes the targets and predictions to compute classification metrics.
+    """
+
+    def __init__(self) -> None:
+        self.l1 = 0
+        self.ssim = 0
+        self.speed = {'preprocess': 0.0, 'inference': 0.0, 'loss': 0.0, 'postprocess': 0.0}
+
+    def process(self, targets, pred):
+        """Target classes and predicted classes."""
+        from ultralytics.yolo.utils import ssim
+        import torch.nn.functional as F
+        # ssim_loss_cal = ssim.SSIM(window_size=11)
+        pred, targets = torch.cat(pred), torch.cat(targets)
+        self.l1 = F.l1_loss(pred, targets)
+        # self.ssim += 1 - ssim_loss_cal(pred, targets)
+        self.ssim = 0
+
+    @property
+    def fitness(self):
+        """Returns top-5 accuracy as fitness score."""
+        # return 1-self.ssim
+        return 1-self.l1
+
+    @property
+    def results_dict(self):
+        """Returns a dictionary with model's performance metrics and fitness score."""
+        return dict(zip(self.keys + ['fitness'], [self.l1, self.ssim, self.fitness]))
+
+    @property
+    def keys(self):
+        """Returns a list of keys for the results_dict property."""
+        return ['metrics/L1_dis', 'metrics/SSIM_dis']
