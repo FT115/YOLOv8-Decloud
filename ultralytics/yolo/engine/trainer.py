@@ -32,7 +32,7 @@ from ultralytics.yolo.utils.dist import ddp_cleanup, generate_ddp_command
 from ultralytics.yolo.utils.files import get_latest_run, increment_path
 from ultralytics.yolo.utils.torch_utils import (EarlyStopping, ModelEMA, de_parallel, init_seeds, one_cycle,
                                                 select_device, strip_optimizer)
-
+from ultralytics.nn.tasks import DecloudModel
 
 class BaseTrainer:
     """
@@ -244,8 +244,9 @@ class BaseTrainer:
             metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
             self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))  # TODO: init metrics for plot_results()?
             self.ema = ModelEMA(self.model)
-            if self.args.plots and not self.args.v5loader:
-                self.plot_training_labels()
+            if not isinstance(self.model, DecloudModel):
+                if self.args.plots and not self.args.v5loader:
+                    self.plot_training_labels()
 
         # Optimizer
         self.accumulate = max(round(self.args.nbs / self.batch_size), 1)  # accumulate loss before optimizing
@@ -348,12 +349,18 @@ class BaseTrainer:
                 loss_len = self.tloss.shape[0] if len(self.tloss.size()) else 1
                 losses = self.tloss if loss_len > 1 else torch.unsqueeze(self.tloss, 0)
                 if RANK in (-1, 0):
-                    pbar.set_description(
+                    try:
+                        pbar.set_description(
                         ('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
-                        (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1]))
+                        (f'{epoch + 1}/{self.epochs}', mem, *losses, 0,batch['img'].shape[-1]))
+                    except:
+                        pbar.set_description(
+                        ('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
+                        (f'{epoch + 1}/{self.epochs}', mem, *losses, 0,batch['target'].shape[-1]))
                     self.run_callbacks('on_batch_end')
-                    if self.args.plots and ni in self.plot_idx:
-                        self.plot_training_samples(batch, ni)
+                    if not isinstance(self.model, DecloudModel):
+                        if self.args.plots and ni in self.plot_idx:
+                            self.plot_training_samples(batch, ni)
 
                 self.run_callbacks('on_train_batch_end')
 
@@ -398,8 +405,9 @@ class BaseTrainer:
             LOGGER.info(f'\n{epoch - self.start_epoch + 1} epochs completed in '
                         f'{(time.time() - self.train_time_start) / 3600:.3f} hours.')
             self.final_eval()
-            if self.args.plots:
-                self.plot_metrics()
+            if not isinstance(self.model, DecloudModel):
+                if self.args.plots:
+                    self.plot_metrics()
             self.run_callbacks('on_train_end')
         torch.cuda.empty_cache()
         self.run_callbacks('teardown')
